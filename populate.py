@@ -22,10 +22,20 @@ here = os.path.abspath(os.path.dirname(__file__))
 logger = logging.getLogger('populate')
 
 
+def unpack(zip_file, output_directory=None):
+    """Unpack a zip file. Optionally provide an ``output_directory``"""
+    with zipfile.ZipFile(zip_file, 'r') as zf:
+        zf.extractall(output_directory)
+    # This does not return the extracted files because we can make
+    #   certain assumptions about the complete-zip format, specifically
+    #   the encapsulating directories name: {col###}_{version}_complete
+
+
 def acquire_content(id, versions=[], host='http://cnx.org',
                     output_dir=here):
-    """Download or use the complete zip for the content at `id` for
-    the specified `versons` from `host`."""
+    """Download or use the complete zip for the content at ``id`` for
+    the specified ``versions`` from ``host``.
+    """
     for version in versions:
         download = '{}-{}.complete.zip'.format(id, version)
         directory = '{}_{}_complete'.format(id, version)
@@ -36,15 +46,14 @@ def acquire_content(id, versions=[], host='http://cnx.org',
             logger.debug("Using found directory, '{}'.".format(directory))
         elif os.path.exists(zip_location):
             logger.debug("Using found complete zip, '{}'".format(download))
+            unpack(zip_location, output_dir)
         else:
             url = "{}/content/{}/{}/complete".format(host, id, version)
             # Download the complete zip
             zip_file = wget.download(url)
             os.rename(zip_file, zip_location)
             # Unpack it
-            with zipfile.ZipFile(zip_file, 'r') as zf:
-                zf.extractall(output_dir)
-
+            unpack(zip_location, output_dir)
         yield output_location
     raise StopIteration
 
