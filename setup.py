@@ -5,15 +5,15 @@ from setuptools import setup, find_packages
 install_requires = (
     'wget',
     )
-description = "An archive population utility."
+description = "A set of content population utilities."
 
 
 setup(
-    name='cnx-archive-population',
+    name='cnx-population',
     version='0.1',
     author='Connexions team',
     author_email='info@cnx.org',
-    url="https://github.com/connexions/cnx-archive-population",
+    url="https://github.com/connexions/cnx-population",
     license='LGPL, See aslo LICENSE.txt',
     description=description,
     packages=find_packages(),
@@ -21,7 +21,7 @@ setup(
     include_package_data=True,
     entry_points="""\
     [console_scripts]
-    cnx-archive-populate = populate:main
+    cnx-archive-populate = cnxpopulation.archive:main
     """,
     # test_suite=''
     )
