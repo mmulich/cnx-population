@@ -11,13 +11,20 @@ import os
 import sys
 import argparse
 import logging
+import json
 import uuid
 import zipfile
 
+import psycopg2
 import wget
+
+from .parsers import parse_collection_xml
 
 
 DESCRIPTION = __doc__
+DEFAULT_PSYCOPG_CONNECTION_STRING = "dbname=cnxarchive user=cnxarchive " \
+                                    "password=cnxarchive host=localhost " \
+                                    "port=5432"
 here = os.path.abspath(os.path.dirname(__file__))
 logger = logging.getLogger('populate')
 
@@ -58,6 +65,45 @@ def acquire_content(id, versions=[], host='http://cnx.org',
     raise StopIteration
 
 
+def insert_completezip_from_filesystem(location, ident_mappings,
+                                       psycopg_conn):
+    """Insert a collection into the database."""
+    with open(os.path.join(location, 'collection.xml'), 'r') as fp:
+        collection_parts = parse_collection_xml(fp)
+    abstract, license_url, collection_metadata, contents = collection_parts
+    # Fix the uuid value and/or pull it from the ident_mapping
+    try:
+        collection_uuid = ident_mappings[collection_metadata['moduleid']]
+    except (KeyError,):
+        collection_uuid = uuid.uuid4()
+    collection_metadata['uuid'] = str(collection_uuid)
+
+    with psycopg_conn.cursor() as cursor:
+        # Insert the abstract
+        cursor.execute("INSERT INTO abstracts (abstract) "
+                       "VALUES (%s) "
+                       "RETURNING abstractid;", (abstract,))
+        abstract_id = cursor.fetchone()[0]
+        # Find the license id
+        cursor.execute("SELECT licenseid FROM licenses "
+                       "WHERE url = %s;", (license_url,))
+        license_id = cursor.fetchone()[0]
+        # Relate the abstract and license
+        collection_metadata['abstractid'] = abstract_id
+        collection_metadata['licenseid'] = license_id
+
+        # Insert the collection
+        collection_metadata = collection_metadata.items()
+        metadata_keys = ', '.join([x for x, y in collection_metadata])
+        metadata_value_spaces = ', '.join(['%s'] * len(collection_metadata))
+        metadata_values = [y for x, y in collection_metadata]
+        cursor.execute("INSERT INTO modules  ({}) "
+                       "VALUES ({}) "
+                       "RETURNING module_ident;".format(metadata_keys, metadata_value_spaces),
+                       metadata_values)
+        collection_id = cursor.fetchone()[0]
+
+
 def main(argv=None):
     """Main commandline interface"""
     parser = argparse.ArgumentParser(description=DESCRIPTION)
@@ -67,19 +113,21 @@ def main(argv=None):
     parser.add_argument('-u', '--legacy-url', default='http://cnx.org',
                         help="defaults to http://cnx.org")
     parser.add_argument('-p', '--psycopg-conn-str',
+                        default=DEFAULT_PSYCOPG_CONNECTION_STRING,
                         help="a psycopg2 connection string")
-    parser
     args = parser.parse_args(argv)
 
     locations = acquire_content(args.collection_id, args.versions,
                                 host=args.legacy_url)
 
-    print([l for l in locations])
-
-    # collection_uuid = uuid.uuid4()
-    # ident_mappings = {args.collection_id: collection_uuid}
-    # for location in locations:
-    #     insert_collection(location, ident_mappings)
+    collection_uuid = uuid.uuid4()
+    ident_mappings = {args.collection_id: collection_uuid}
+    for location in locations:
+        with psycopg2.connect(args.psycopg_conn_str) as db_connection:
+            insert_completezip_from_filesystem(location,
+                                               ident_mappings,
+                                               db_connection)
+            db_connection.commit()
 
 
 if __name__ == '__main__':
