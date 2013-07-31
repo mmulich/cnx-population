@@ -68,7 +68,8 @@ def acquire_content(id, versions=[], host='http://cnx.org',
 def insert_completezip_from_filesystem(location, ident_mappings,
                                        psycopg_conn):
     """Insert a collection into the database."""
-    with open(os.path.join(location, 'collection.xml'), 'r') as fp:
+    collection_xml_path = os.path.join(location, 'collection.xml')
+    with open(collection_xml_path, 'r') as fp:
         collection_parts = parse_collection_xml(fp)
     abstract, license_url, collection_metadata, contents = collection_parts
     # Fix the uuid value and/or pull it from the ident_mapping
@@ -99,9 +100,23 @@ def insert_completezip_from_filesystem(location, ident_mappings,
         metadata_values = [y for x, y in collection_metadata]
         cursor.execute("INSERT INTO modules  ({}) "
                        "VALUES ({}) "
-                       "RETURNING module_ident;".format(metadata_keys, metadata_value_spaces),
+                       "RETURNING module_ident;".format(metadata_keys,
+                                                        metadata_value_spaces),
                        metadata_values)
         collection_id = cursor.fetchone()[0]
+
+        # And finally insert the original collection.xml file
+        with open(collection_xml_path, 'r') as fp:
+            cursor.execute("INSERT INTO files (file) VALUES (%s) RETURNING fileid;",
+                           (fp.read(),))
+        file_id = cursor.fetchone()[0]
+        cursor.execute("INSERT INTO module_files "
+                       "  (module_ident, fileid, filename, mimetype) "
+                       "  VALUES (%s, %s, %s, %s) ",
+                       (collection_id, file_id, 'collection.xml', 'text/xml',))
+
+    for module_id in contents:
+        pass
 
 
 def main(argv=None):
