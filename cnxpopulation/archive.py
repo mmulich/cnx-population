@@ -18,7 +18,7 @@ import zipfile
 import psycopg2
 import wget
 
-from .parsers import parse_collection_xml
+from .parsers import parse_collection_xml, parse_module_xml
 
 
 DESCRIPTION = __doc__
@@ -116,7 +116,61 @@ def insert_completezip_from_filesystem(location, ident_mappings,
                        (collection_id, file_id, 'collection.xml', 'text/xml',))
 
     for module_id in contents:
-        pass
+        content_file_path = os.path.join(location, module_id, 'index.cnxml')
+        content_w_metadata_file_path = os.path.join(location, module_id,
+                                                   'index_auto_generated.cnxml')
+        with open(content_w_metadata_file_path, 'r') as fp:
+            abstract, license_url, metadata, resources = parse_module_xml(fp)
+        with psycopg_conn.cursor() as cursor:
+            # Insert the abstract
+            cursor.execute("INSERT INTO abstracts (abstract) "
+                           "VALUES (%s) "
+                           "RETURNING abstractid;", (abstract,))
+            abstract_id = cursor.fetchone()[0]
+            # Find the license id
+            cursor.execute("SELECT licenseid FROM licenses "
+                           "WHERE url = %s;", (license_url,))
+            license_id = cursor.fetchone()[0]
+            # Relate the abstract and license
+            metadata['abstractid'] = abstract_id
+            metadata['licenseid'] = license_id
+
+            # Insert the collection
+            metadata = metadata.items()
+            metadata_keys = ', '.join([x for x, y in metadata])
+            metadata_value_spaces = ', '.join(['%s'] * len(metadata))
+            metadata_values = [y for x, y in metadata]
+            cursor.execute("INSERT INTO modules  ({}) "
+                           "VALUES ({}) "
+                           "RETURNING module_ident;".format(
+                               metadata_keys,
+                               metadata_value_spaces),
+                           metadata_values)
+            content_id = cursor.fetchone()[0]
+
+            # And finally insert the original collection.xml file
+            with open(content_file_path, 'r') as fp:
+                cursor.execute("INSERT INTO files (file) VALUES (%s) "
+                               "RETURNING fileid;", (fp.read(),))
+                file_id = cursor.fetchone()[0]
+                cursor.execute("INSERT INTO module_files "
+                               "  (module_ident, fileid, filename, mimetype) "
+                               "  VALUES (%s, %s, %s, %s) ",
+                               (content_id, file_id, 'index.cnxml',
+                                'text/xml',))
+        for filename, mimetype in resources:
+            resource_file_path = os.path.join(location, module_id, filename)
+            with psycopg_conn.cursor() as cursor:
+                with open(resource_file_path, 'rb') as fp:
+                    cursor.execute("INSERT INTO files (file) VALUES (%s) "
+                                   "RETURNING fileid;",
+                                   (psycopg2.Binary(fp.read()),))
+                    file_id = cursor.fetchone()[0]
+                cursor.execute("INSERT INTO module_files "
+                               "  (module_ident, fileid, filename, mimetype) "
+                               "  VALUES (%s, %s, %s, %s) ",
+                               (content_id, file_id, filename,
+                                mimetype,))
 
 
 def main(argv=None):

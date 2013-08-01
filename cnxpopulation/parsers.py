@@ -10,7 +10,7 @@ import os
 import lxml.etree
 
 
-__all__ = ('parse_collection_xml',)
+__all__ = ('parse_collection_xml', 'parse_module_xml',)
 
 
 def parse_collection_xml(fp):
@@ -60,3 +60,55 @@ def parse_collection_xml(fp):
     contents = xpath('//col:module/@document')[:]
 
     return [abstract, license, metadata, contents]
+
+
+def parse_module_xml(fp):
+    """Parse the file into segments that will fit into the database.
+    This works against the index_auto_generated.cnxml
+    Returns the abstract content, license url, metadata dictionary,
+    and a list of resource urls that are in the content.
+    """
+    # Parse the document
+    tree = lxml.etree.parse(fp)
+
+    nsmap = tree.getroot().nsmap.copy()
+    # XPath doesn't like null namespaces...
+    nsmap['cnxml'] = nsmap.pop(None)
+    xpath = lambda xpth: tree.xpath(xpth, namespaces=nsmap)
+
+    # Pull the abstract
+    abstract = xpath('//md:abstract/text()')[0]
+
+    # Pull the license
+    license = xpath('//md:license/@url')[0]
+
+    # Pull the collection metadata
+    metadata = {
+        'portal_type': 'Collection',
+        'moduleid': xpath('//md:content-id/text()')[0],
+        'version': xpath('//md:version/text()')[0],
+        'name': xpath('//md:title/text()')[0],
+        # FIXME Don't feel like parsing the dates at the moment.
+        # 'created': ?,
+        # 'revised': ?,
+        'doctype': '',  # Can't be null, but appears unused.
+        'submitter': '',
+        'submitlog': '',
+        'language': xpath('//md:language/text()')[0],
+        'authors': xpath('//md:roles/md:role[type="author"]/text()')[:],
+        'maintainers': xpath('//md:roles/md:role[type="maintainer"]/text()')[:],
+        'licensors': xpath('//md:roles/md:role[type="licensor"]/text()')[:],
+        # 'parentauthors': None,
+
+        # Related on insert...
+        # 'parent': 1,
+        # 'stateid': 1,
+        # 'licenseid': 1,
+        # 'abstractid': 1,
+        }
+
+    # Pull the linked content (modules)
+    resources = [(e.get('src'), e.get('mime-type'),)
+                 for e in xpath('//cnxml:image')]
+
+    return [abstract, license, metadata, resources]
