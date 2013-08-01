@@ -13,17 +13,20 @@ import lxml.etree
 __all__ = ('parse_collection_xml', 'parse_module_xml',)
 
 
-def parse_collection_xml(fp):
-    """Parse into the file into segments that will fit into the database.
-    Returns the abstract content, license url, metadata dictionary,
-    and a list of content ids that are part of this collection.
-    """
-    # Parse the document
-    tree = lxml.etree.parse(fp)
+def _generate_xpath_func(xml_doc, default_namespace_name='base'):
+    """Generates an easy to work with xpath function."""
+    nsmap = xml_doc.nsmap.copy()
+    try:
+        nsmap[default_namespace_name] = nsmap.pop(None)
+    except KeyError:
+        # There isn't a default namespace.
+        pass
+    return lambda xpth: xml_doc.xpath(xpth, namespaces=nsmap)
 
-    nsmap = tree.getroot().nsmap.copy()
-    del nsmap[None]
-    xpath = lambda xpth: tree.xpath(xpth, namespaces=nsmap)
+
+def _parse_common_elements(xml_doc):
+    """Parse the common elements between a ColXML and CnXML files."""
+    xpath = _generate_xpath_func(xml_doc)
 
     # Pull the abstract
     abstract = xpath('//md:abstract/text()')[0]
@@ -56,10 +59,24 @@ def parse_collection_xml(fp):
         # 'abstractid': 1,
         }
 
-    # Pull the linked content (modules)
-    contents = xpath('//col:module/@document')[:]
+    return [abstract, license, metadata]
 
-    return [abstract, license, metadata, contents]
+
+def parse_collection_xml(fp):
+    """Parse into the file into segments that will fit into the database.
+    Returns the abstract content, license url, metadata dictionary,
+    and a list of content ids that are part of this collection.
+    """
+    # Parse the document
+    tree = lxml.etree.parse(fp)
+    doc = tree.getroot()
+    xpath = _generate_xpath_func(doc, 'colxml')
+
+    data = _parse_common_elements(doc)
+    # Pull the linked content (modules)
+    contents = xpath('//colxml:module/@document')[:]
+    data.append(contents)
+    return data
 
 
 def parse_module_xml(fp):
@@ -70,45 +87,12 @@ def parse_module_xml(fp):
     """
     # Parse the document
     tree = lxml.etree.parse(fp)
+    doc = tree.getroot()
+    xpath = _generate_xpath_func(doc, 'cnxml')
 
-    nsmap = tree.getroot().nsmap.copy()
-    # XPath doesn't like null namespaces...
-    nsmap['cnxml'] = nsmap.pop(None)
-    xpath = lambda xpth: tree.xpath(xpth, namespaces=nsmap)
-
-    # Pull the abstract
-    abstract = xpath('//md:abstract/text()')[0]
-
-    # Pull the license
-    license = xpath('//md:license/@url')[0]
-
-    # Pull the collection metadata
-    metadata = {
-        'portal_type': 'Collection',
-        'moduleid': xpath('//md:content-id/text()')[0],
-        'version': xpath('//md:version/text()')[0],
-        'name': xpath('//md:title/text()')[0],
-        # FIXME Don't feel like parsing the dates at the moment.
-        # 'created': ?,
-        # 'revised': ?,
-        'doctype': '',  # Can't be null, but appears unused.
-        'submitter': '',
-        'submitlog': '',
-        'language': xpath('//md:language/text()')[0],
-        'authors': xpath('//md:roles/md:role[type="author"]/text()')[:],
-        'maintainers': xpath('//md:roles/md:role[type="maintainer"]/text()')[:],
-        'licensors': xpath('//md:roles/md:role[type="licensor"]/text()')[:],
-        # 'parentauthors': None,
-
-        # Related on insert...
-        # 'parent': 1,
-        # 'stateid': 1,
-        # 'licenseid': 1,
-        # 'abstractid': 1,
-        }
-
+    data = _parse_common_elements(doc)
     # Pull the linked content (modules)
     resources = [(e.get('src'), e.get('mime-type'),)
                  for e in xpath('//cnxml:image')]
-
-    return [abstract, license, metadata, resources]
+    data.append(resources)
+    return data
