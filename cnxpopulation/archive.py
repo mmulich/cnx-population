@@ -122,17 +122,17 @@ def insert_completezip_from_filesystem(location, ident_mappings,
         with open(content_w_metadata_file_path, 'r') as fp:
             abstract, license_url, metadata, resources = parse_module_xml(fp)
         with psycopg_conn.cursor() as cursor:
-            # Insert the abstract
-            cursor.execute("INSERT INTO abstracts (abstract) "
-                           "VALUES (%s) "
-                           "RETURNING abstractid;", (abstract,))
-            abstract_id = cursor.fetchone()[0]
+            if abstract is not None:
+                # Insert the abstract
+                cursor.execute("INSERT INTO abstracts (abstract) "
+                               "VALUES (%s) "
+                               "RETURNING abstractid;", (abstract,))
+                abstract_id = cursor.fetchone()[0]
+                metadata['abstractid'] = abstract_id
             # Find the license id
             cursor.execute("SELECT licenseid FROM licenses "
                            "WHERE url = %s;", (license_url,))
             license_id = cursor.fetchone()[0]
-            # Relate the abstract and license
-            metadata['abstractid'] = abstract_id
             metadata['licenseid'] = license_id
 
             # Insert the collection

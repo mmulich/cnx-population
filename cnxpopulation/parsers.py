@@ -29,7 +29,10 @@ def _parse_common_elements(xml_doc):
     xpath = _generate_xpath_func(xml_doc)
 
     # Pull the abstract
-    abstract = xpath('//md:abstract/text()')[0]
+    try:
+        abstract = xpath('//md:abstract/text()')[0]
+    except IndexError:
+        abstract = None
 
     # Pull the license
     license = xpath('//md:license/@url')[0]
