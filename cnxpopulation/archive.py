@@ -65,9 +65,10 @@ def acquire_content(id, versions=[], host='http://cnx.org',
     raise StopIteration
 
 
-def insert_completezip_from_filesystem(location, ident_mappings,
-                                       psycopg_conn):
-    """Insert a collection into the database."""
+def populate_from_completezip(location, ident_mappings, psycopg_conn):
+    """Populate the database using an unpacked completezip
+    formated collection.
+    """
     collection_xml_path = os.path.join(location, 'collection.xml')
     with open(collection_xml_path, 'r') as fp:
         collection_parts = parse_collection_xml(fp)
@@ -193,9 +194,9 @@ def main(argv=None):
     ident_mappings = {args.collection_id: collection_uuid}
     for location in locations:
         with psycopg2.connect(args.psycopg_conn_str) as db_connection:
-            insert_completezip_from_filesystem(location,
-                                               ident_mappings,
-                                               db_connection)
+            populate_from_completezip(location,
+                                      ident_db,
+                                      mappings_connection)
             db_connection.commit()
 
 
