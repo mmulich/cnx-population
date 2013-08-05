@@ -186,8 +186,10 @@ def main(argv=None):
                         help="a psycopg2 connection string")
     args = parser.parse_args(argv)
 
+    output_dir = os.getcwd()
     locations = acquire_content(args.collection_id, args.versions,
-                                host=args.legacy_url)
+                                host=args.legacy_url,
+                                output_dir=output_dir)
 
     collection_uuid = uuid.uuid4()
     ident_mappings = {args.collection_id: collection_uuid}
