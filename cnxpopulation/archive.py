@@ -14,9 +14,9 @@ import logging
 import json
 import uuid
 import zipfile
+from urllib import urlretrieve
 
 import psycopg2
-import wget
 
 from .parsers import parse_collection_xml, parse_module_xml
 
@@ -57,8 +57,7 @@ def acquire_content(id, versions=[], host='http://cnx.org',
         else:
             url = "{}/content/{}/{}/complete".format(host, id, version)
             # Download the complete zip
-            zip_file = wget.download(url)
-            os.rename(zip_file, zip_location)
+            zip_file, headers = urlretrieve(url, filename=zip_location)
             # Unpack it
             unpack(zip_location, output_dir)
         yield output_location

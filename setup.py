@@ -5,7 +5,6 @@ from setuptools import setup, find_packages
 install_requires = (
     'lxml',
     'psycopg2',
-    'wget',
     )
 description = "A set of content population utilities."
 
