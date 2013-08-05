@@ -195,8 +195,8 @@ def main(argv=None):
     for location in locations:
         with psycopg2.connect(args.psycopg_conn_str) as db_connection:
             populate_from_completezip(location,
-                                      ident_db,
-                                      mappings_connection)
+                                      ident_mappings,
+                                      db_connection)
             db_connection.commit()
 
 
