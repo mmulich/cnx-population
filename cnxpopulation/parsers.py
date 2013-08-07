@@ -39,7 +39,6 @@ def _parse_common_elements(xml_doc):
 
     # Pull the collection metadata
     metadata = {
-        'portal_type': 'Collection',
         'moduleid': xpath('//md:content-id/text()')[0],
         'version': xpath('//md:version/text()')[0],
         'name': xpath('//md:title/text()')[0],
@@ -54,6 +53,7 @@ def _parse_common_elements(xml_doc):
         'maintainers': xpath('//md:roles/md:role[type="maintainer"]/text()')[:],
         'licensors': xpath('//md:roles/md:role[type="licensor"]/text()')[:],
         # 'parentauthors': None,
+        # 'portal_type': 'Collection' or 'Module',
 
         # Related on insert...
         # 'parent': 1,
@@ -76,6 +76,7 @@ def parse_collection_xml(fp):
     xpath = _generate_xpath_func(doc, 'colxml')
 
     data = _parse_common_elements(doc)
+    data[2]['portal_type'] = 'Collection'
     # Pull the linked content (modules)
     contents = xpath('//colxml:module/@document')[:]
     data.append(contents)
@@ -94,6 +95,7 @@ def parse_module_xml(fp):
     xpath = _generate_xpath_func(doc, 'cnxml')
 
     data = _parse_common_elements(doc)
+    data[2]['portal_type'] = 'Module'
     # Pull the linked content (modules)
     resources = [(e.get('src'), e.get('mime-type'),)
                  for e in xpath('//cnxml:image')]
