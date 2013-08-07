@@ -107,13 +107,15 @@ def populate_from_completezip(location, ident_mappings, psycopg_conn):
 
         # And finally insert the original collection.xml file
         with open(collection_xml_path, 'r') as fp:
-            cursor.execute("INSERT INTO files (file) VALUES (%s) RETURNING fileid;",
-                           (fp.read(),))
+            cursor.execute("INSERT INTO files (file) VALUES (%s) "
+                           "RETURNING fileid;",
+                           (psycopg2.Binary(fp.read()),))
         file_id = cursor.fetchone()[0]
         cursor.execute("INSERT INTO module_files "
                        "  (module_ident, fileid, filename, mimetype) "
                        "  VALUES (%s, %s, %s, %s) ",
                        (collection_id, file_id, 'collection.xml', 'text/xml',))
+    psycopg_conn.commit()
 
     for module_id in contents:
         content_file_path = os.path.join(location, module_id, 'index.cnxml')
@@ -150,8 +152,9 @@ def populate_from_completezip(location, ident_mappings, psycopg_conn):
 
             # And finally insert the original collection.xml file
             with open(content_file_path, 'r') as fp:
+                payload = (psycopg2.Binary(fp.read()),)
                 cursor.execute("INSERT INTO files (file) VALUES (%s) "
-                               "RETURNING fileid;", (fp.read(),))
+                               "RETURNING fileid;", payload)
                 file_id = cursor.fetchone()[0]
                 cursor.execute("INSERT INTO module_files "
                                "  (module_ident, fileid, filename, mimetype) "
@@ -171,6 +174,7 @@ def populate_from_completezip(location, ident_mappings, psycopg_conn):
                                "  VALUES (%s, %s, %s, %s) ",
                                (content_id, file_id, filename,
                                 mimetype,))
+        psycopg_conn.commit()
 
 
 def main(argv=None):
