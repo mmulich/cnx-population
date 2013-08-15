@@ -21,6 +21,11 @@ def _generate_xpath_func(xml_doc, default_namespace_name='base'):
     except KeyError:
         # There isn't a default namespace.
         pass
+    if "http://cnx.rice.edu/mdml/0.4" in nsmap.values():
+        # Fixes an issue where the namespace is defined twice, once in the
+        #   document tag and again in the metadata tag.
+        nsmap['md4'] = "http://cnx.rice.edu/mdml/0.4"
+        nsmap['md'] = "http://cnx.rice.edu/mdml"
     return lambda xpth: xml_doc.xpath(xpth, namespaces=nsmap)
 
 
@@ -35,7 +40,10 @@ def _parse_common_elements(xml_doc):
         abstract = None
 
     # Pull the license
-    license = xpath('//md:license/@url')[0]
+    try:
+        license = xpath('//md:license/@url')[0]
+    except IndexError:
+        raise ValueError("Missing license metadata.")
 
     # Pull the collection metadata
     metadata = {
