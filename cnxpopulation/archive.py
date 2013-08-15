@@ -163,6 +163,9 @@ def populate_from_completezip(location, ident_mappings, psycopg_conn):
                                 'text/xml',))
         for filename, mimetype in resources:
             resource_file_path = os.path.join(location, module_id, filename)
+            if not os.path.exists(resource_file_path):
+                # FIXME Should at least log this as an error.
+                continue
             with psycopg_conn.cursor() as cursor:
                 with open(resource_file_path, 'rb') as fp:
                     cursor.execute("INSERT INTO files (file) VALUES (%s) "
