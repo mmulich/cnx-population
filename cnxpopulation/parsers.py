@@ -107,5 +107,7 @@ def parse_module_xml(fp):
     # Pull the linked content (modules)
     resources = [(e.get('src'), e.get('mime-type'),)
                  for e in xpath('//cnxml:image')]
+    filenames = [filename for filename, mimetype in resources]
+    resources = [r for i, r in enumerate(resources) if r[0] not in filenames[:i]]
     data.append(resources)
     return data
