@@ -150,17 +150,21 @@ def populate_from_completezip(location, ident_mappings, psycopg_conn):
                            metadata_values)
             content_id = cursor.fetchone()[0]
 
-            # And finally insert the original collection.xml file
-            with open(content_file_path, 'r') as fp:
-                payload = (psycopg2.Binary(fp.read()),)
-                cursor.execute("INSERT INTO files (file) VALUES (%s) "
-                               "RETURNING fileid;", payload)
-                file_id = cursor.fetchone()[0]
-                cursor.execute("INSERT INTO module_files "
-                               "  (module_ident, fileid, filename, mimetype) "
-                               "  VALUES (%s, %s, %s, %s) ",
-                               (content_id, file_id, 'index.cnxml',
-                                'text/xml',))
+            # And finally insert the original index.cnxml
+            #   and index_auto_generated.cnxml files.
+            for file_path in (content_file_path, content_w_metadata_file_path,):
+                filename = os.path.basename(file_path)
+                with open(file_path, 'r') as fp:
+                    payload = (psycopg2.Binary(fp.read()),)
+                    cursor.execute("INSERT INTO files (file) VALUES (%s) "
+                                   "RETURNING fileid;", payload)
+                    file_id = cursor.fetchone()[0]
+                    cursor.execute("INSERT INTO module_files "
+                                   "  (module_ident, fileid, filename, "
+                                   "   mimetype) "
+                                   "  VALUES (%s, %s, %s, %s) ",
+                                   (content_id, file_id, filename,
+                                    'text/xml',))
         for filename, mimetype in resources:
             resource_file_path = os.path.join(location, module_id, filename)
             if not os.path.exists(resource_file_path):
