@@ -21,7 +21,8 @@ def _generate_xpath_func(xml_doc, default_namespace_name='base'):
     except KeyError:
         # There isn't a default namespace.
         pass
-    if "http://cnx.rice.edu/mdml/0.4" in nsmap.values():
+    if "http://cnx.rice.edu/mdml/" not in nsmap.values() \
+       or "http://cnx.rice.edu/mdml/0.4" in nsmap.values():
         # Fixes an issue where the namespace is defined twice, once in the
         #   document tag and again in the metadata tag.
         nsmap['md4'] = "http://cnx.rice.edu/mdml/0.4"
