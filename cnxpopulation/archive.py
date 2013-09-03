@@ -71,51 +71,14 @@ def populate_from_completezip(location, ident_mappings, psycopg_conn):
     collection_xml_path = os.path.join(location, 'collection.xml')
     with open(collection_xml_path, 'r') as fp:
         collection_parts = parse_collection_xml(fp)
-    abstract, license_url, collection_metadata, contents = collection_parts
+    collection_abstract, collection_license_url, collection_metadata, \
+        contents = collection_parts
     # Fix the uuid value and/or pull it from the ident_mapping
     try:
         collection_uuid = ident_mappings[collection_metadata['moduleid']]
     except (KeyError,):
         collection_uuid = uuid.uuid4()
     collection_metadata['uuid'] = str(collection_uuid)
-
-    with psycopg_conn.cursor() as cursor:
-        # Insert the abstract
-        cursor.execute("INSERT INTO abstracts (abstract) "
-                       "VALUES (%s) "
-                       "RETURNING abstractid;", (abstract,))
-        abstract_id = cursor.fetchone()[0]
-        # Find the license id
-        cursor.execute("SELECT licenseid FROM licenses "
-                       "WHERE url = %s;", (license_url,))
-        license_id = cursor.fetchone()[0]
-        # Relate the abstract and license
-        collection_metadata['abstractid'] = abstract_id
-        collection_metadata['licenseid'] = license_id
-
-        # Insert the collection
-        collection_metadata = collection_metadata.items()
-        metadata_keys = ', '.join([x for x, y in collection_metadata])
-        metadata_value_spaces = ', '.join(['%s'] * len(collection_metadata))
-        metadata_values = [y for x, y in collection_metadata]
-        cursor.execute("INSERT INTO modules  ({}) "
-                       "VALUES ({}) "
-                       "RETURNING module_ident;".format(metadata_keys,
-                                                        metadata_value_spaces),
-                       metadata_values)
-        collection_id = cursor.fetchone()[0]
-
-        # And finally insert the original collection.xml file
-        with open(collection_xml_path, 'r') as fp:
-            cursor.execute("INSERT INTO files (file) VALUES (%s) "
-                           "RETURNING fileid;",
-                           (psycopg2.Binary(fp.read()),))
-        file_id = cursor.fetchone()[0]
-        cursor.execute("INSERT INTO module_files "
-                       "  (module_ident, fileid, filename, mimetype) "
-                       "  VALUES (%s, %s, %s, %s) ",
-                       (collection_id, file_id, 'collection.xml', 'text/xml',))
-    psycopg_conn.commit()
 
     for module_id in contents:
         content_file_path = os.path.join(location, module_id, 'index.cnxml')
@@ -182,6 +145,44 @@ def populate_from_completezip(location, ident_mappings, psycopg_conn):
                                (content_id, file_id, filename,
                                 mimetype,))
         psycopg_conn.commit()
+
+    with psycopg_conn.cursor() as cursor:
+        # Insert the abstract
+        cursor.execute("INSERT INTO abstracts (abstract) "
+                       "VALUES (%s) "
+                       "RETURNING abstractid;", (collection_abstract,))
+        abstract_id = cursor.fetchone()[0]
+        # Find the license id
+        cursor.execute("SELECT licenseid FROM licenses "
+                       "WHERE url = %s;", (collection_license_url,))
+        license_id = cursor.fetchone()[0]
+        # Relate the abstract and license
+        collection_metadata['abstractid'] = abstract_id
+        collection_metadata['licenseid'] = license_id
+
+        # Insert the collection
+        collection_metadata = collection_metadata.items()
+        metadata_keys = ', '.join([x for x, y in collection_metadata])
+        metadata_value_spaces = ', '.join(['%s'] * len(collection_metadata))
+        metadata_values = [y for x, y in collection_metadata]
+        cursor.execute("INSERT INTO modules  ({}) "
+                       "VALUES ({}) "
+                       "RETURNING module_ident;".format(metadata_keys,
+                                                        metadata_value_spaces),
+                       metadata_values)
+        collection_id = cursor.fetchone()[0]
+
+        # And finally insert the original collection.xml file
+        with open(collection_xml_path, 'r') as fp:
+            cursor.execute("INSERT INTO files (file) VALUES (%s) "
+                           "RETURNING fileid;",
+                           (psycopg2.Binary(fp.read()),))
+        file_id = cursor.fetchone()[0]
+        cursor.execute("INSERT INTO module_files "
+                       "  (module_ident, fileid, filename, mimetype) "
+                       "  VALUES (%s, %s, %s, %s) ",
+                       (collection_id, file_id, 'collection.xml', 'text/xml',))
+    psycopg_conn.commit()
 
 
 def main(argv=None):
