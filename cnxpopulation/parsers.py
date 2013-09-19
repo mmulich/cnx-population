@@ -52,8 +52,8 @@ def _parse_common_elements(xml_doc):
         'version': xpath('//md:version/text()')[0],
         'name': xpath('//md:title/text()')[0],
         # FIXME Don't feel like parsing the dates at the moment.
-        # 'created': ?,
-        # 'revised': ?,
+        'created': xpath('//md:created/text()')[0],
+        'revised': xpath('//md:revised/text()')[0],
         'doctype': '',  # Can't be null, but appears unused.
         'submitter': '',
         'submitlog': '',
