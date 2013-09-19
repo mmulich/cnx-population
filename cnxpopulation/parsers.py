@@ -71,7 +71,10 @@ def _parse_common_elements(xml_doc):
         # 'abstractid': 1,
         }
 
-    return [abstract, license, metadata]
+    keywords = [kw for kw in xpath('//md:keywordlist/md:keyword/text()')]
+    subjects = [s for s in xpath('//md:subjectlist/md:subject/text()')]
+
+    return [abstract, license, metadata, keywords, subjects]
 
 
 def parse_collection_xml(fp):

@@ -72,7 +72,7 @@ def populate_from_completezip(location, ident_mappings, psycopg_conn):
     with open(collection_xml_path, 'r') as fp:
         collection_parts = parse_collection_xml(fp)
     collection_abstract, collection_license_url, collection_metadata, \
-        contents = collection_parts
+        collection_keywords, collection_subjects, contents = collection_parts
     # Fix the uuid value and/or pull it from the ident_mapping
     try:
         collection_uuid = ident_mappings[collection_metadata['moduleid']]
@@ -85,7 +85,8 @@ def populate_from_completezip(location, ident_mappings, psycopg_conn):
         content_w_metadata_file_path = os.path.join(location, module_id,
                                                    'index_auto_generated.cnxml')
         with open(content_w_metadata_file_path, 'r') as fp:
-            abstract, license_url, metadata, resources = parse_module_xml(fp)
+            abstract, license_url, metadata, \
+                keywords, subjects,resources = parse_module_xml(fp)
         with psycopg_conn.cursor() as cursor:
             if abstract is not None:
                 # Insert the abstract
@@ -144,6 +145,29 @@ def populate_from_completezip(location, ident_mappings, psycopg_conn):
                                "  VALUES (%s, %s, %s, %s) ",
                                (content_id, file_id, filename,
                                 mimetype,))
+        # Associate the subjects and input the keywords.
+        with psycopg_conn.cursor() as cursor:
+            for subject in subjects:
+                cursor.execute("INSERT INTO moduletags (module_ident, tagid) "
+                               "  VALUES (%s, "
+                               "          (SELECT tagid FROM tags "
+                               "             WHERE tag = %s)"
+                               "          );",
+                               (content_id, subject))
+            for keyword in keywords:
+                try:
+                    cursor.execute("SELECT keywordid FROM keywords "
+                                   "  WHERE word = %s;", (keyword,))
+                    keyword_id = cursor.fetchone()[0]
+                except TypeError:
+                    cursor.execute("INSERT INTO keywords (word) "
+                                   "  VALUES (%s) "
+                                   "  RETURNING keywordid", (keyword,))
+                    keyword_id = cursor.fetchone()[0]
+                cursor.execute("INSERT INTO modulekeywords "
+                               "  (module_ident, keywordid) "
+                               "  VALUES (%s, %s)",
+                               (content_id, keyword_id,))
         psycopg_conn.commit()
 
     with psycopg_conn.cursor() as cursor:
@@ -182,6 +206,30 @@ def populate_from_completezip(location, ident_mappings, psycopg_conn):
                        "  (module_ident, fileid, filename, mimetype) "
                        "  VALUES (%s, %s, %s, %s) ",
                        (collection_id, file_id, 'collection.xml', 'text/xml',))
+        # Associate the subjects and input the keywords.
+        with psycopg_conn.cursor() as cursor:
+            for subject in collection_subjects:
+                cursor.execute("INSERT INTO moduletags (module_ident, tagid) "
+                               "  VALUES (%s, "
+                               "          (SELECT tagid FROM tags "
+                               "             WHERE tag = %s)"
+                               "          );",
+                               (collection_id, subject))
+            for keyword in collection_keywords:
+                try:
+                    cursor.execute("SELECT keywordid FROM keywords "
+                                   "  WHERE word = %s;", (keyword,))
+                    keyword_id = cursor.fetchone()[0]
+                except TypeError:
+                    cursor.execute("INSERT INTO keywords (word) "
+                                   "  VALUES (%s) "
+                                   "  RETURNING keywordid", (keyword,))
+                    keyword_id = cursor.fetchone()[0]
+                cursor.execute("INSERT INTO modulekeywords "
+                               "  (module_ident, keywordid) "
+                               "  VALUES (%s, %s)",
+                               (collection_id, keyword_id,))
+
     psycopg_conn.commit()
 
 
