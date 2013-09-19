@@ -64,6 +64,64 @@ def acquire_content(id, versions=[], host='http://cnx.org',
     raise StopIteration
 
 
+def _insert_abstract(abstract_text, cursor):
+    """insert the abstract"""
+    cursor.execute("INSERT INTO abstracts (abstract) "
+                   "VALUES (%s) "
+                   "RETURNING abstractid;", (abstract_text,))
+    id = cursor.fetchone()[0]
+    return id
+def _find_license_id_by_url(url, cursor):
+    cursor.execute("SELECT licenseid FROM licenses "
+                   "WHERE url = %s;", (url,))
+    id = cursor.fetchone()[0]
+    return id
+def _insert_module(metadata, cursor):
+    metadata = metadata.items()
+    metadata_keys = ', '.join([x for x, y in metadata])
+    metadata_value_spaces = ', '.join(['%s'] * len(metadata))
+    metadata_values = [y for x, y in metadata]
+    cursor.execute("INSERT INTO modules  ({}) "
+                   "VALUES ({}) "
+                   "RETURNING module_ident;".format(
+            metadata_keys,
+            metadata_value_spaces),
+                   metadata_values)
+    id = cursor.fetchone()[0]
+    return id
+def _insert_module_file(module_id, filename, mimetype, file, cursor):
+    payload = (psycopg2.Binary(file.read()),)
+    cursor.execute("INSERT INTO files (file) VALUES (%s) "
+                   "RETURNING fileid;", payload)
+    file_id = cursor.fetchone()[0]
+    cursor.execute("INSERT INTO module_files "
+                   "  (module_ident, fileid, filename, "
+                   "   mimetype) "
+                   "  VALUES (%s, %s, %s, %s) ",
+                   (module_id, file_id, filename, mimetype,))
+def _insert_subject_for_module(subject_text, module_id, cursor):
+    cursor.execute("INSERT INTO moduletags (module_ident, tagid) "
+                   "  VALUES (%s, "
+                   "          (SELECT tagid FROM tags "
+                   "             WHERE tag = %s)"
+                   "          );",
+                   (module_id, subject_text))
+def _insert_keyword_for_module(keyword, module_id, cursor):
+    try:
+        cursor.execute("SELECT keywordid FROM keywords "
+                       "  WHERE word = %s;", (keyword,))
+        keyword_id = cursor.fetchone()[0]
+    except TypeError:
+        cursor.execute("INSERT INTO keywords (word) "
+                       "  VALUES (%s) "
+                       "  RETURNING keywordid", (keyword,))
+        keyword_id = cursor.fetchone()[0]
+    cursor.execute("INSERT INTO modulekeywords "
+                   "  (module_ident, keywordid) "
+                   "  VALUES (%s, %s)",
+                   (module_id, keyword_id,))
+
+
 def populate_from_completezip(location, ident_mappings, psycopg_conn):
     """Populate the database using an unpacked completezip
     formated collection.
@@ -89,147 +147,55 @@ def populate_from_completezip(location, ident_mappings, psycopg_conn):
                 keywords, subjects,resources = parse_module_xml(fp)
         with psycopg_conn.cursor() as cursor:
             if abstract is not None:
-                # Insert the abstract
-                cursor.execute("INSERT INTO abstracts (abstract) "
-                               "VALUES (%s) "
-                               "RETURNING abstractid;", (abstract,))
-                abstract_id = cursor.fetchone()[0]
-                metadata['abstractid'] = abstract_id
+                metadata['abstractid'] = _insert_abstract(abstract, cursor)
             # Find the license id
-            cursor.execute("SELECT licenseid FROM licenses "
-                           "WHERE url = %s;", (license_url,))
-            license_id = cursor.fetchone()[0]
-            metadata['licenseid'] = license_id
-
-            # Insert the collection
-            metadata = metadata.items()
-            metadata_keys = ', '.join([x for x, y in metadata])
-            metadata_value_spaces = ', '.join(['%s'] * len(metadata))
-            metadata_values = [y for x, y in metadata]
-            cursor.execute("INSERT INTO modules  ({}) "
-                           "VALUES ({}) "
-                           "RETURNING module_ident;".format(
-                               metadata_keys,
-                               metadata_value_spaces),
-                           metadata_values)
-            content_id = cursor.fetchone()[0]
-
+            metadata['licenseid'] = _find_license_id_by_url(license_url,
+                                                            cursor)
+            # Insert the module
+            content_id = _insert_module(metadata, cursor)
             # And finally insert the original index.cnxml
             #   and index_auto_generated.cnxml files.
             for file_path in (content_file_path, content_w_metadata_file_path,):
                 filename = os.path.basename(file_path)
-                with open(file_path, 'r') as fp:
-                    payload = (psycopg2.Binary(fp.read()),)
-                    cursor.execute("INSERT INTO files (file) VALUES (%s) "
-                                   "RETURNING fileid;", payload)
-                    file_id = cursor.fetchone()[0]
-                    cursor.execute("INSERT INTO module_files "
-                                   "  (module_ident, fileid, filename, "
-                                   "   mimetype) "
-                                   "  VALUES (%s, %s, %s, %s) ",
-                                   (content_id, file_id, filename,
-                                    'text/xml',))
+                with open(file_path, 'r') as fb:
+                    _insert_module_file(content_id, filename, 'text/xml', fb,
+                                        cursor)
         for filename, mimetype in resources:
             resource_file_path = os.path.join(location, module_id, filename)
             if not os.path.exists(resource_file_path):
                 # FIXME Should at least log this as an error.
                 continue
             with psycopg_conn.cursor() as cursor:
-                with open(resource_file_path, 'rb') as fp:
-                    cursor.execute("INSERT INTO files (file) VALUES (%s) "
-                                   "RETURNING fileid;",
-                                   (psycopg2.Binary(fp.read()),))
-                    file_id = cursor.fetchone()[0]
-                cursor.execute("INSERT INTO module_files "
-                               "  (module_ident, fileid, filename, mimetype) "
-                               "  VALUES (%s, %s, %s, %s) ",
-                               (content_id, file_id, filename,
-                                mimetype,))
+                with open(resource_file_path, 'rb') as fb:
+                    _insert_module_file(content_id, filename, mimetype, fb,
+                                        cursor)
         # Associate the subjects and input the keywords.
         with psycopg_conn.cursor() as cursor:
             for subject in subjects:
-                cursor.execute("INSERT INTO moduletags (module_ident, tagid) "
-                               "  VALUES (%s, "
-                               "          (SELECT tagid FROM tags "
-                               "             WHERE tag = %s)"
-                               "          );",
-                               (content_id, subject))
+                _insert_subject_for_module(subject, content_id, cursor)
             for keyword in keywords:
-                try:
-                    cursor.execute("SELECT keywordid FROM keywords "
-                                   "  WHERE word = %s;", (keyword,))
-                    keyword_id = cursor.fetchone()[0]
-                except TypeError:
-                    cursor.execute("INSERT INTO keywords (word) "
-                                   "  VALUES (%s) "
-                                   "  RETURNING keywordid", (keyword,))
-                    keyword_id = cursor.fetchone()[0]
-                cursor.execute("INSERT INTO modulekeywords "
-                               "  (module_ident, keywordid) "
-                               "  VALUES (%s, %s)",
-                               (content_id, keyword_id,))
+                _insert_keyword_for_module(keyword, content_id, cursor)
         psycopg_conn.commit()
 
     with psycopg_conn.cursor() as cursor:
-        # Insert the abstract
-        cursor.execute("INSERT INTO abstracts (abstract) "
-                       "VALUES (%s) "
-                       "RETURNING abstractid;", (collection_abstract,))
-        abstract_id = cursor.fetchone()[0]
-        # Find the license id
-        cursor.execute("SELECT licenseid FROM licenses "
-                       "WHERE url = %s;", (collection_license_url,))
-        license_id = cursor.fetchone()[0]
-        # Relate the abstract and license
+        abstract_id = _insert_abstract(collection_abstract, cursor)
+        license_id = _find_license_id_by_url(collection_license_url, cursor)
         collection_metadata['abstractid'] = abstract_id
         collection_metadata['licenseid'] = license_id
 
         # Insert the collection
-        collection_metadata = collection_metadata.items()
-        metadata_keys = ', '.join([x for x, y in collection_metadata])
-        metadata_value_spaces = ', '.join(['%s'] * len(collection_metadata))
-        metadata_values = [y for x, y in collection_metadata]
-        cursor.execute("INSERT INTO modules  ({}) "
-                       "VALUES ({}) "
-                       "RETURNING module_ident;".format(metadata_keys,
-                                                        metadata_value_spaces),
-                       metadata_values)
-        collection_id = cursor.fetchone()[0]
+        collection_id = _insert_module(collection_metadata, cursor)
 
         # And finally insert the original collection.xml file
-        with open(collection_xml_path, 'r') as fp:
-            cursor.execute("INSERT INTO files (file) VALUES (%s) "
-                           "RETURNING fileid;",
-                           (psycopg2.Binary(fp.read()),))
-        file_id = cursor.fetchone()[0]
-        cursor.execute("INSERT INTO module_files "
-                       "  (module_ident, fileid, filename, mimetype) "
-                       "  VALUES (%s, %s, %s, %s) ",
-                       (collection_id, file_id, 'collection.xml', 'text/xml',))
+        with open(collection_xml_path, 'r') as fb:
+            _insert_module_file(collection_id, 'collection.xml', 'text/xml',
+                                fb, cursor)
         # Associate the subjects and input the keywords.
         with psycopg_conn.cursor() as cursor:
             for subject in collection_subjects:
-                cursor.execute("INSERT INTO moduletags (module_ident, tagid) "
-                               "  VALUES (%s, "
-                               "          (SELECT tagid FROM tags "
-                               "             WHERE tag = %s)"
-                               "          );",
-                               (collection_id, subject))
+                _insert_subject_for_module(subject, collection_id, cursor)
             for keyword in collection_keywords:
-                try:
-                    cursor.execute("SELECT keywordid FROM keywords "
-                                   "  WHERE word = %s;", (keyword,))
-                    keyword_id = cursor.fetchone()[0]
-                except TypeError:
-                    cursor.execute("INSERT INTO keywords (word) "
-                                   "  VALUES (%s) "
-                                   "  RETURNING keywordid", (keyword,))
-                    keyword_id = cursor.fetchone()[0]
-                cursor.execute("INSERT INTO modulekeywords "
-                               "  (module_ident, keywordid) "
-                               "  VALUES (%s, %s)",
-                               (collection_id, keyword_id,))
-
+                _insert_keyword_for_module(keyword, collection_id, cursor)
     psycopg_conn.commit()
 
 
