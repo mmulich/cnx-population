@@ -9,6 +9,7 @@
 """A script that populates a cnx-archive database from a legacy repository."""
 import os
 import sys
+import csv
 import argparse
 import logging
 import json
@@ -131,20 +132,33 @@ def populate_from_completezip(location, ident_mappings, psycopg_conn):
         collection_parts = parse_collection_xml(fp)
     collection_abstract, collection_license_url, collection_metadata, \
         collection_keywords, collection_subjects, contents = collection_parts
-    # Fix the uuid value and/or pull it from the ident_mapping
+    # Determine the *id values from the ident_mapping
     try:
-        collection_uuid = ident_mappings[collection_metadata['moduleid']]
-    except (KeyError,):
-        collection_uuid = uuid.uuid4()
-    collection_metadata['uuid'] = str(collection_uuid)
+        collection_mid = collection_metadata['moduleid']
+        collection_uuid, collection_ident = ident_mappings[collection_mid]
+        collection_metadata['uuid'] = collection_uuid
+        collection_metadata['module_ident'] = collection_ident
+    except KeyError:
+        pass
 
-    for module_id in contents:
-        content_file_path = os.path.join(location, module_id, 'index.cnxml')
-        content_w_metadata_file_path = os.path.join(location, module_id,
+    for module_mid in contents:
+        # Paths to the medatadata/content files.
+        content_file_path = os.path.join(location, module_mid, 'index.cnxml')
+        content_w_metadata_file_path = os.path.join(location, module_mid,
                                                    'index_auto_generated.cnxml')
+        # Read the metadata file.
         with open(content_w_metadata_file_path, 'r') as fp:
             abstract, license_url, metadata, \
                 keywords, subjects,resources = parse_module_xml(fp)
+        # Determine the *id values from the ident_mapping.
+        try:
+            module_mid = metadata['moduleid']
+            module_uuid, module_ident = ident_mappings[module_mid]
+            metadata['uuid'] = module_uuid
+            metadata['module_ident'] = module_ident
+        except KeyError:
+            pass
+
         with psycopg_conn.cursor() as cursor:
             if abstract is not None:
                 metadata['abstractid'] = _insert_abstract(abstract, cursor)
@@ -161,7 +175,7 @@ def populate_from_completezip(location, ident_mappings, psycopg_conn):
                     _insert_module_file(content_id, filename, 'text/xml', fb,
                                         cursor)
         for filename, mimetype in resources:
-            resource_file_path = os.path.join(location, module_id, filename)
+            resource_file_path = os.path.join(location, module_mid, filename)
             if not os.path.exists(resource_file_path):
                 # FIXME Should at least log this as an error.
                 continue
@@ -210,6 +224,8 @@ def main(argv=None):
     parser.add_argument('-p', '--psycopg-conn-str',
                         default=DEFAULT_PSYCOPG_CONNECTION_STRING,
                         help="a psycopg2 connection string")
+    parser.add_argument('--ids-file', type=argparse.FileType('r'),
+                        help="CSV containing moduleid, uuid and module_ident")
     args = parser.parse_args(argv)
 
     output_dir = os.getcwd()
@@ -217,8 +233,13 @@ def main(argv=None):
                                 host=args.legacy_url,
                                 output_dir=output_dir)
 
-    collection_uuid = uuid.uuid4()
-    ident_mappings = {args.collection_id: collection_uuid}
+    import psycopg2.extras
+    psycopg2.extras.register_uuid()
+    if args.ids_file:
+        ident_mappings = {mid: (uuid.UUID(uid), int(ident),)
+                          for mid, uid, ident in csv.reader(args.ids_file)}
+    else:
+        ident_mappings = {}
     for location in locations:
         with psycopg2.connect(args.psycopg_conn_str) as db_connection:
             populate_from_completezip(location,
